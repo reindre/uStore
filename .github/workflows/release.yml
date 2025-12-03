@@ -1,0 +1,81 @@
+name: Create Release
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+
+      # - name: Create Release
+      #   id: create_release
+      #   uses: actions/create-release@latest
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.FTOKEN }}
+      #   with:
+      #     tag_name: v${{ github.run_number }}
+      #     release_name: Release v${{ github.run_number }}
+      #     draft: false
+      #     prerelease: false
+
+      - name: File Restorer
+        env:
+          PASSWORD: ${{ secrets.PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.FTOKEN }}
+          # UPLOAD_URL: ${{ steps.create_release.outputs.upload_url }}
+        run: |
+          sudo apt install -qq ffmpeg -y
+          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/reindre/uStore.git
+          cd FileStore
+          DIRS=$(git ls-tree -d HEAD | awk '{print $4}' | grep -v github)
+          cd .. && rm -rf FileStore
+
+          for dir in $DIRS; do
+              echo $dir
+              git clone --filter=blob:none --no-checkout --depth 1 https://github.com/reindre/uStore.git
+              cd FileStore
+              git sparse-checkout init --cone
+              git sparse-checkout set $dir
+              git checkout
+              python decrypt.py -F "$dir" -p $PASSWORD
+              ls -lah
+              cd .. && rm -rf FileStore
+              continue
+              
+              FILE="$dir.$ext"
+              FILE_SIZE=$(stat -c%s "$FILE")
+              MAX_SIZE=$((2 * 1024 * 1024 * 1024))
+              FILENAME=$(basename "$FILE")
+              CONTENT_TYPE=$(file --mime-type -b "$FILE")
+              FILE_UPLOAD_URL="${UPLOAD_URL/\{\?name,label\}/?name=$(basename "$FILE")}"
+              
+              if [ "$FILE_SIZE" -le "$MAX_SIZE" ]; then
+                  curl -s \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Content-Type: $CONTENT_TYPE" \
+                    --upload-file "$FILE" \
+                    "${FILE_UPLOAD_URL}"
+              else
+                  DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE")
+                  HALF_DURATION=$(echo "$DURATION / 2" | bc)
+                  
+                  ffmpeg -i "$FILE" -c copy -t "$HALF_DURATION" "${FILE}.part1.$ext"
+                  ffmpeg -i "$FILE" -c copy -ss "$HALF_DURATION" "${FILE}.part2.$ext"
+                  
+                  for part in "${FILE}.part"*.${ext}; do
+                      PART_NAME=$(basename "$part")
+                      PART_CONTENT_TYPE=$(file --mime-type -b "$part")
+                      PART_UPLOAD_URL="${UPLOAD_URL/\{\?name,label\}/?name=$PART_NAME}"
+                      curl -s \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Content-Type: $PART_CONTENT_TYPE" \
+                        --upload-file "$part" \
+                        "${PART_UPLOAD_URL}"
+                      rm -f "$part"
+                  done
+              fi
+              rm -f "$FILE"
+          done
