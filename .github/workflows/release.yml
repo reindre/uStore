@@ -29,20 +29,20 @@ jobs:
         run: |
           sudo apt install -qq ffmpeg -y
           git clone --filter=blob:none --no-checkout --depth 1 https://github.com/reindre/uStore.git
-          cd FileStore
+          cd uStore
           DIRS=$(git ls-tree -d HEAD | awk '{print $4}' | grep -v github)
-          cd .. && rm -rf FileStore
+          cd .. && rm -rf uStore
 
           for dir in $DIRS; do
               echo $dir
               git clone --filter=blob:none --no-checkout --depth 1 https://github.com/reindre/uStore.git
-              cd FileStore
+              cd uStore
               git sparse-checkout init --cone
               git sparse-checkout set $dir
               git checkout
               python decrypt.py -F "$dir" -p $PASSWORD
               ls -lah
-              cd .. && rm -rf FileStore
+              cd .. && rm -rf uStore
               continue
               
               FILE="$dir.$ext"
